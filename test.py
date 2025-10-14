@@ -4,22 +4,22 @@ import cv2
 import os
 
 
-# foto = cv2.imread("./smile.jpeg")
+# foto = cv2.imread("./normal1.jpg")
 
 # def foto_negatifi(foto):
 #     L = np.max(foto)
 #     negatif_foto = L - foto
 #     return negatif_foto
 
-# foto = cv2.imread("./smile.jpeg", 0)
+foto = cv2.imread("./normal1.jpg", 0)
 
 # negative_foto = foto_negatifi(foto)
 
 # yan_yana = np.hstack((foto, negative_foto))
 
-# print(img.shape)
+print(foto.shape)
 
-# cv2.imshow("fotograf", img)
+# cv2.imshow("fotograf", foto)
 # cv2.waitKey(0)
 # cv2.destroyAllWindows
 
@@ -46,20 +46,20 @@ import os
 # yogunluk = foto[x, y]
 # print("yogunluk:", yogunluk)
 
-# crop = foto[1000:1450, 1000:1450]
-# print(crop.shape)
+crop = foto[300:800]
+print(crop.shape)
 
 # crop = foto[10:15, 10:15, 1]
 # print(crop)
 
 # kirmizi_kanali = foto[:, :, 2]
 
-# cv2.imshow("fotograf", crop)
+cv2.imshow("fotograf", crop)
 # plt.imshow(foto, cmap="gray")
 # plt.show()
 
-# cv2.waitKey(0)
-# cv2.destroyAllWindows
+cv2.waitKey(0)
+cv2.destroyAllWindows
 
 # plt.imshow(yan_yana, cmap="gray")
 # plt.show()

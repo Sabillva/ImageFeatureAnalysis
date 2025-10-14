@@ -3,13 +3,11 @@ import cv2
 import os
 from math import sqrt
 
-# === BASE DIRECTORY ===
-base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_1\dataset"
 
-# === EMOTIONS ===
+base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_1\dataset"
 emotions = ["smile", "fear", "upset", "suprised", "normal", "angry"]
 
-# === FEATURE FUNCTIONS ===
+
 def energy(I):
     return np.sum(I ** 2)
 
@@ -59,7 +57,7 @@ def dissimilarity(I):
 def mean_value(I):
     return np.mean(I)
 
-# === FEATURE EXTRACTION ===
+
 def extract_features(image_path):
     img = cv2.imread(image_path, 0)
     if img is None:
@@ -78,18 +76,18 @@ def extract_features(image_path):
     ])
     return features
 
-# === EUCLIDEAN DISTANCE ===
+
 def euclidean_distance(f_test, f_train):
     return sqrt(np.sum((f_test - f_train) ** 2))
 
-# === MAIN PROCESS ===
+
 for emotion in emotions:
     folder_path = os.path.join(base_dir, emotion)
     if not os.path.exists(folder_path):
         print(f"Dosya bulunmadi: {folder_path}")
         continue
 
-    # 10 resim: 9 train, 1 test
+    
     image_paths = [os.path.join(folder_path, f"{emotion}{i}.jpg") for i in range(1, 11)]
     train_images = image_paths[:-1]
     test_image = image_paths[-1]
@@ -110,7 +108,7 @@ for emotion in emotions:
     print(f"Energy={test_features[0]:.4f}, Entropy={test_features[1]:.4f}, Contrast={test_features[2]:.4f}, Correlation={test_features[3]:.4f}, "
           f"MaxProb={test_features[4]:.4f}, Homogeneity={test_features[5]:.4f}, Dissimilarity={test_features[6]:.4f}, Mean={test_features[7]:.4f}")
 
-    # === D MESAFELERI ===
+ 
     print("\n=== D Mesafeleri (Oklid) ===")
     distances = []
     for idx, f in enumerate(train_features):
@@ -118,7 +116,7 @@ for emotion in emotions:
         distances.append((idx + 1, D))
         print(f"D{idx+1} (training image {idx+1}) = {D:.4f}")
 
-    # En yakin -> en uzak
+
     distances.sort(key=lambda x: x[1])
     print("\n=== D mesafeler siralanmis (en yakin -> en uzak) ===")
     for idx, (img_idx, dist) in enumerate(distances):
