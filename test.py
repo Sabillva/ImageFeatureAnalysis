@@ -11,7 +11,7 @@ import os
 #     negatif_foto = L - foto
 #     return negatif_foto
 
-foto = cv2.imread("./normal1.jpg", 0)
+foto = cv2.imread("./normal10.jpg", 0)
 
 # negative_foto = foto_negatifi(foto)
 
@@ -46,7 +46,7 @@ print(foto.shape)
 # yogunluk = foto[x, y]
 # print("yogunluk:", yogunluk)
 
-crop = foto[300:800]
+crop = foto[700:100, 500:1000]
 print(crop.shape)
 
 # crop = foto[10:15, 10:15, 1]

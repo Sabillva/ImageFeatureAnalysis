@@ -7,6 +7,8 @@ from math import sqrt
 base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_1\dataset"
 emotions = ["smile", "fear", "upset", "suprised", "normal", "angry"]
 
+# Haar Cascade ile yüz algılama yapılıyor
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 def energy(I):
     return np.sum(I ** 2)
@@ -59,11 +61,25 @@ def mean_value(I):
 
 
 def extract_features(image_path):
-    img = cv2.imread(image_path, 0)
+    img = cv2.imread(image_path)
     if img is None:
         print(f"Foto okunmadi: {image_path}")
         return np.zeros(8)
-    I = np.array(img, dtype=np.float32)
+    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Yüz tespiti yapılıyor
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
+
+    if len(faces) == 0:
+        print(f"Yuz bulunamadi, tum goruntu kullanilacak: {image_path}")
+        face_region = gray
+    else:
+        (x, y, w, h) = faces[0]
+        face_region = gray[y:y + h, x:x + w]
+
+    # Normalize ediliyor (0-1 arası)
+    I = cv2.normalize(face_region.astype('float32'), None, 0.0, 1.0, cv2.NORM_MINMAX)
     features = np.array([
         energy(I),
         entropy(I),
@@ -74,6 +90,19 @@ def extract_features(image_path):
         dissimilarity(I),
         mean_value(I)
     ])
+    
+    # Negatif veya NaN değerleri 0 yap
+    features = np.nan_to_num(features, nan=0.0)
+    features[features < 0] = 0.0
+
+    # --- LOGARİTMİK ÖLÇEKLEME ---
+    features = np.log1p(features)
+
+    # --- NORMALİZASYON ---
+    max_val = np.max(features)
+    if max_val > 0:
+        features = features / max_val
+        
     return features
 
 
