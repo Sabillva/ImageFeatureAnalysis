@@ -4,7 +4,7 @@ import os
 from math import sqrt
 
 
-base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_2\dataset"
+base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_2\dataset_glcm"
 emotions = ["smile", "fear", "upset", "suprised", "normal", "angry"]
 
 # Haar Cascade ile yüz algılama yapılıyor

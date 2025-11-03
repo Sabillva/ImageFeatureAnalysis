@@ -4,7 +4,7 @@ import os
 from math import sqrt
 from skimage.feature import graycomatrix, graycoprops
 
-base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_2\dataset"
+base_dir = r"C:\Users\asus2\OneDrive\Desktop\Goruntu_Isleme_Ders_2\dataset_glcm"
 emotions = ["smile", "fear", "upset", "suprised", "normal", "angry"]
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
