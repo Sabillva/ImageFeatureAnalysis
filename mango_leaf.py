@@ -13,7 +13,6 @@ from sklearn.svm import SVC
 from sklearn.metrics import classification_report, confusion_matrix
 from skimage.restoration import denoise_tv_chambolle
 
-#------------------ Dataset klasörleri ---------------------
 base_dir = 'dataset'
 train_dir = os.path.join(base_dir, 'train')
 test_dir = os.path.join(base_dir, 'test')
@@ -27,7 +26,6 @@ categories = [
     'Powdery_Mildew', 'Sooty_Mould'
 ]
 
-# Train/test ayrımı
 for category in categories:
     src_folder = os.path.join(base_dir, category)
     images = os.listdir(src_folder)
@@ -47,7 +45,6 @@ for category in categories:
                     os.path.join(test_dir, category, img))
 
 #----------------------------------------------------
-# Rastgele örnek göster
 train_dir = 'dataset/train'
 categories = os.listdir(train_dir)
 random_category = random.choice(categories)
@@ -75,7 +72,7 @@ plt.axis('off')
 
 plt.subplot(1,2,2)
 plt.imshow(tv_denoised)
-plt.title("TV Filtresi Sonucu (Gürültü Azaltilmiş)")
+plt.title("TV Filtresi Sonucu")
 plt.axis('off')
 plt.tight_layout()
 plt.show(block=False)
@@ -85,7 +82,7 @@ plt.close()
 #--------------------- VMD (Varyasyonel Mod Ayrıştırma) ----------------------------
 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-# Her satır için 1D sinyal oluşturup modlara ayır
+# Her satır için 1D sinyal oluşturup modlara ayırmak
 H, W = gray.shape
 K = 3
 modes_2d = np.zeros((K, H, W))
@@ -96,7 +93,7 @@ for i in range(H):
     for k in range(K):
         modes_2d[k, i, :] = u_row[k]
 
-# Modları görsel olarak göster
+# Modları görsel olarak göstermek
 plt.figure(figsize=(12,4))
 for k in range(K):
     plt.subplot(1, K, k+1)
@@ -109,21 +106,21 @@ plt.show()
 
 #-------------------- Özellik Çıkarımı (Feature Extraction) ---------------------------
 def extract_features_from_image(image_path):
-    """Bir görüntüden TV filtresi + VMD tabanli özellikler çikarir"""
+    """Bir görüntüden TV filtresi + VMD tabanli özellikler çikarmak"""
     img = cv2.imread(image_path)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    # --- Total Variation Filter
+    # --- TVF
     tv_filtered = denoise_tv_chambolle(img_rgb, weight=0.1, channel_axis=-1)
     gray_tv = cv2.cvtColor((tv_filtered * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
 
-    # --- Grayscale sinyali oluştur
+    # --- Grayscale sinyali oluşturmak
     signal = np.mean(gray_tv, axis=1)
 
-    # --- VMD uygula
+    # --- VMD uygulamak
     u, _, _ = VMD(signal, alpha=2000, tau=0.0, K=3, DC=0, init=1, tol=1e-7)
 
-    # --- Her mod için istatistiksel özellikler hesapla
+    # --- Her mod için istatistiksel özellikler hesaplamak
     features = []
     for i in range(3):
         mode = u[i]
@@ -135,15 +132,15 @@ def extract_features_from_image(image_path):
 
     return features
 
-#-------------------------- Tüm dataset için özellik tablosu ---------------------------------------
+#--------------- Tüm dataset için özellik tablosu -------------------
 data = []
 labels = []
 
 for category in categories:
     category_path = os.path.join(train_dir, category)
     images = os.listdir(category_path)
-    random.shuffle(images)  # Rastgele karıştır
-    for filename in images[:250]:  # 250 örnek al
+    random.shuffle(images)
+    for filename in images[:250]:  # 250 örnek alalim
         image_path = os.path.join(category_path, filename)
         features = extract_features_from_image(image_path)
         data.append(features)
