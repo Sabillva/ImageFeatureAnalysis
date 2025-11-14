@@ -1,172 +1,143 @@
-import os
-import random
-import shutil
+# mango_dense_features_rf_gpu_fixed.py
+import os, random
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
-from vmdpy import VMD
 import pandas as pd
-from scipy.stats import entropy
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
+from tqdm import tqdm
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix
-from skimage.restoration import denoise_tv_chambolle
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+import joblib
+import tensorflow as tf
+from tensorflow.keras.applications import DenseNet121, VGG19
+from tensorflow.keras.applications.densenet import preprocess_input as densenet_pre
+from tensorflow.keras.applications.vgg19 import preprocess_input as vgg_pre
+from tensorflow.keras.preprocessing.image import img_to_array
 
-base_dir = 'dataset'
-train_dir = os.path.join(base_dir, 'train')
-test_dir = os.path.join(base_dir, 'test')
+# ------------- Ayarlar -------------
+DATASET_DIR = "dataset"
+TRAIN_DIR = os.path.join(DATASET_DIR, "train")
+TEST_DIR = os.path.join(DATASET_DIR, "test")
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32       # GPU ile batch olarak işleme
+USE_VGG = True
+FEATURES_PKL = "features_concat_gpu_fixed.pkl"
+SEED = 42
 
-os.makedirs(train_dir, exist_ok=True)
-os.makedirs(test_dir, exist_ok=True)
+random.seed(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
 
-categories = [
-    'Anthracnose', 'Bacterial_Canker', 'Cutting_Weevil',
-    'Die_Back', 'Gall_Midge', 'Healthy',
-    'Powdery_Mildew', 'Sooty_Mould'
-]
+# ------------- Model yükle (feature extractor) -------------
+densenet = DenseNet121(weights='imagenet', include_top=False, pooling='avg')
+if USE_VGG:
+    vgg = VGG19(weights='imagenet', include_top=False, pooling='avg')
 
-for category in categories:
-    src_folder = os.path.join(base_dir, category)
-    images = os.listdir(src_folder)
-    random.shuffle(images)
-    test_size = 50
-    test_images = images[:test_size]
-    train_images = images[test_size:]
+# ------------- Görüntü okuma -------------
+def load_image(path, target_size=IMG_SIZE):
+    img = cv2.imread(path)
+    if img is None:
+        raise ValueError("Cannot read image:", path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, target_size)
+    return img
 
-    os.makedirs(os.path.join(train_dir, category), exist_ok=True)
-    os.makedirs(os.path.join(test_dir, category), exist_ok=True)
+# ------------- Batch feature extraction -------------
+def extract_features_batch(image_paths):
+    X_dn, X_vg, feats = [], [], []
+    for path in image_paths:
+        img = load_image(path)
+        x = img_to_array(img)
+        if USE_VGG:
+            X_dn.append(x.copy())
+            X_vg.append(x.copy())
+        else:
+            X_dn.append(x)
+    # DenseNet
+    X_dn = np.array(X_dn)
+    X_dn = densenet_pre(X_dn)
+    f_dn = densenet.predict(X_dn, batch_size=BATCH_SIZE, verbose=0)
+    # VGG
+    if USE_VGG:
+        X_vg = np.array(X_vg)
+        X_vg = vgg_pre(X_vg)
+        f_vg = vgg.predict(X_vg, batch_size=BATCH_SIZE, verbose=0)
+        feats = np.concatenate([f_dn, f_vg], axis=1)
+    else:
+        feats = f_dn
+    return feats
 
-    for img in train_images:
-        shutil.copy(os.path.join(src_folder, img),
-                    os.path.join(train_dir, category, img))
-    for img in test_images:
-        shutil.copy(os.path.join(src_folder, img),
-                    os.path.join(test_dir, category, img))
+# ------------- Feature extraction train/test -------------
+if os.path.exists(FEATURES_PKL):
+    print("Loading saved features:", FEATURES_PKL)
+    df = pd.read_pickle(FEATURES_PKL)
+    X_train = np.vstack(df[df['set']=='train']['features'].values)
+    y_train = df[df['set']=='train']['label'].values
+    X_test = np.vstack(df[df['set']=='test']['features'].values)
+    y_test = df[df['set']=='test']['label'].values
+else:
+    categories = sorted([d for d in os.listdir(TRAIN_DIR) if os.path.isdir(os.path.join(TRAIN_DIR,d))])
+    train_rows, test_rows = [], []
 
-#----------------------------------------------------
-train_dir = 'dataset/train'
-categories = os.listdir(train_dir)
-random_category = random.choice(categories)
-category_path = os.path.join(train_dir, random_category)
-random_image = random.choice(os.listdir(category_path))
-image_path = os.path.join(category_path, random_image)
+    # -------- TRAIN FEATURES --------
+    for cls in categories:
+        cls_folder = os.path.join(TRAIN_DIR, cls)
+        imgs = [os.path.join(cls_folder, f) for f in os.listdir(cls_folder) if f.lower().endswith(('.jpg','.png'))]
+        print(f"Processing TRAIN class {cls} -> {len(imgs)} images")
+        feats = extract_features_batch(imgs)
+        for f, img_path in zip(feats, imgs):
+            train_rows.append({'features': f, 'label': cls, 'set': 'train'})
 
-img = cv2.imread(image_path)
-img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # -------- TEST FEATURES --------
+    for cls in categories:
+        cls_folder = os.path.join(TEST_DIR, cls)
+        imgs = [os.path.join(cls_folder, f) for f in os.listdir(cls_folder) if f.lower().endswith(('.jpg','.png'))]
+        print(f"Processing TEST class {cls} -> {len(imgs)} images")
+        feats = extract_features_batch(imgs)
+        for f, img_path in zip(feats, imgs):
+            test_rows.append({'features': f, 'label': cls, 'set': 'test'})
 
-plt.figure(figsize=(5,5))
-plt.imshow(img_rgb)
-plt.title(f"Kategori: {random_category}")
-plt.axis('off')
-plt.show()
+    # DataFrame oluştur
+    df_train = pd.DataFrame(train_rows)
+    df_test = pd.DataFrame(test_rows)
+    df = pd.concat([df_train, df_test], ignore_index=True)
+    df.to_pickle(FEATURES_PKL)
 
-#---------------------- Total Variation Filter ---------------------------
-tv_denoised = denoise_tv_chambolle(img_rgb, weight=0.1, channel_axis=-1)
+    X_train = np.vstack(df[df['set']=='train']['features'].values)
+    y_train = df[df['set']=='train']['label'].values
+    X_test = np.vstack(df[df['set']=='test']['features'].values)
+    y_test = df[df['set']=='test']['label'].values
+    print("Saved features to", FEATURES_PKL)
 
-plt.figure(figsize=(10,5))
-plt.subplot(1,2,1)
-plt.imshow(img_rgb)
-plt.title("Orijinal Görüntü")
-plt.axis('off')
+# ------------- Encode labels -------------
+le = LabelEncoder()
+y_train_enc = le.fit_transform(y_train)
+y_test_enc = le.transform(y_test)
+print("Classes:", le.classes_)
 
-plt.subplot(1,2,2)
-plt.imshow(tv_denoised)
-plt.title("TV Filtresi Sonucu")
-plt.axis('off')
-plt.tight_layout()
-plt.show(block=False)
-plt.pause(8)
-plt.close()
-
-#--------------------- VMD (Varyasyonel Mod Ayrıştırma) ----------------------------
-gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-# Her satır için 1D sinyal oluşturup modlara ayırmak
-H, W = gray.shape
-K = 3
-modes_2d = np.zeros((K, H, W))
-
-for i in range(H):
-    row_signal = gray[i, :].astype(float)
-    u_row, _, _ = VMD(row_signal, alpha=2000, tau=0, K=K, DC=0, init=1, tol=1e-7)
-    for k in range(K):
-        modes_2d[k, i, :] = u_row[k]
-
-# Modları görsel olarak göstermek
-plt.figure(figsize=(12,4))
-for k in range(K):
-    plt.subplot(1, K, k+1)
-    plt.imshow(modes_2d[k], cmap='gray')
-    plt.title(f"Mod {k+1}")
-    plt.axis('off')
-plt.suptitle("VMD ile Ayriştirilmiş Modlar (Yüksek-Orta-Düşük Frekans)")
-plt.tight_layout()
-plt.show()
-
-#-------------------- Özellik Çıkarımı (Feature Extraction) ---------------------------
-def extract_features_from_image(image_path):
-    """Bir görüntüden TV filtresi + VMD tabanli özellikler çikarmak"""
-    img = cv2.imread(image_path)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # --- TVF
-    tv_filtered = denoise_tv_chambolle(img_rgb, weight=0.1, channel_axis=-1)
-    gray_tv = cv2.cvtColor((tv_filtered * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
-
-    # --- Grayscale sinyali oluşturmak
-    signal = np.mean(gray_tv, axis=1)
-
-    # --- VMD uygulamak
-    u, _, _ = VMD(signal, alpha=2000, tau=0.0, K=3, DC=0, init=1, tol=1e-7)
-
-    # --- Her mod için istatistiksel özellikler hesaplamak
-    features = []
-    for i in range(3):
-        mode = u[i]
-        mean_val = np.mean(mode)
-        var_val = np.var(mode)
-        energy_val = np.sum(mode ** 2)
-        ent_val = entropy(np.abs(mode) + 1e-10)
-        features.extend([mean_val, var_val, energy_val, ent_val])
-
-    return features
-
-#--------------- Tüm dataset için özellik tablosu -------------------
-data = []
-labels = []
-
-for category in categories:
-    category_path = os.path.join(train_dir, category)
-    images = os.listdir(category_path)
-    random.shuffle(images)
-    for filename in images[:250]:  # 250 örnek alalim
-        image_path = os.path.join(category_path, filename)
-        features = extract_features_from_image(image_path)
-        data.append(features)
-        labels.append(category)
-
-df = pd.DataFrame(data)
-df['label'] = labels
-
-print("Ozellik cikarimi tamamlandi.")
-print(df.head())
-
-#----------------------- Support Vector Machine (SVM) modeli ---------------------------
-X = df.drop('label', axis=1)
-y = df['label']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
+# ------------- Scale -------------
 scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+X_train_s = scaler.fit_transform(X_train)
+X_test_s = scaler.transform(X_test)
 
-svm = SVC(kernel='rbf', C=10, gamma='scale')
-svm.fit(X_train_scaled, y_train)
-y_pred = svm.predict(X_test_scaled)
+# ------------- RandomForest ---------
+rf = RandomForestClassifier(n_estimators=200, random_state=SEED, n_jobs=-1)
+rf.fit(X_train_s, y_train_enc)
 
-print("\nSiniflandirma Sonuclari:")
-print(classification_report(y_test, y_pred))
-print("\nConfusion Matrix:")
-print(confusion_matrix(y_test, y_pred))
+# ------------- Evaluate ---------
+y_pred = rf.predict(X_test_s)
+print("\nClassification report (hold-out):\n", classification_report(y_test_enc, y_pred, target_names=le.classes_))
+print("\nConfusion matrix:\n", confusion_matrix(y_test_enc, y_pred))
+
+# 10-fold CV
+X_all = np.vstack([X_train, X_test])
+y_all = np.concatenate([y_train_enc, y_test_enc])
+skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=SEED)
+scores = cross_val_score(rf, scaler.transform(X_all), y_all, cv=skf, scoring='accuracy', n_jobs=-1)
+print("10-fold CV accuracies:", np.round(scores,4))
+print("Mean CV acc: {:.4f} ± {:.4f}".format(scores.mean(), scores.std()))
+
+# Save model
+joblib.dump({'rf': rf, 'scaler': scaler, 'le': le}, "rf_dense_vgg_model_gpu_fixed.joblib")
+print("Saved RF model -> rf_dense_vgg_model_gpu_fixed.joblib")
