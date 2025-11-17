@@ -1,143 +1,161 @@
-# mango_dense_features_rf_gpu_fixed.py
-import os, random
+# =======================
+# DENSENET + VGG + PCA + RANDOM FOREST
+# =======================
+
+import os
 import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import StratifiedKFold, cross_val_score
 import joblib
+
 import tensorflow as tf
 from tensorflow.keras.applications import DenseNet121, VGG19
-from tensorflow.keras.applications.densenet import preprocess_input as densenet_pre
+from tensorflow.keras.applications.densenet import preprocess_input as dn_pre
 from tensorflow.keras.applications.vgg19 import preprocess_input as vgg_pre
 from tensorflow.keras.preprocessing.image import img_to_array
 
-# ------------- Ayarlar -------------
-DATASET_DIR = "dataset"
-TRAIN_DIR = os.path.join(DATASET_DIR, "train")
-TEST_DIR = os.path.join(DATASET_DIR, "test")
+# --------------------------
+# Ayarlar
+# --------------------------
+DATASET_DIR = "dataset"       
 IMG_SIZE = (224, 224)
-BATCH_SIZE = 32       # GPU ile batch olarak işleme
-USE_VGG = True
-FEATURES_PKL = "features_concat_gpu_fixed.pkl"
+BATCH_SIZE = 32
 SEED = 42
+PCA_COMPONENTS = 250          
+N_TREES = 500                 
 
-random.seed(SEED)
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
-# ------------- Model yükle (feature extractor) -------------
-densenet = DenseNet121(weights='imagenet', include_top=False, pooling='avg')
-if USE_VGG:
-    vgg = VGG19(weights='imagenet', include_top=False, pooling='avg')
+# --------------------------
+# Model Yükleme
+# --------------------------
+dn_model = DenseNet121(weights="imagenet", include_top=False, pooling="avg")
+vgg_model = VGG19(weights="imagenet", include_top=False, pooling="avg")
 
-# ------------- Görüntü okuma -------------
-def load_image(path, target_size=IMG_SIZE):
+# --------------------------
+# Görüntü yükleme
+# --------------------------
+def load_image(path):
     img = cv2.imread(path)
-    if img is None:
-        raise ValueError("Cannot read image:", path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, target_size)
+    img = cv2.resize(img, IMG_SIZE)
     return img
 
-# ------------- Batch feature extraction -------------
-def extract_features_batch(image_paths):
-    X_dn, X_vg, feats = [], [], []
-    for path in image_paths:
-        img = load_image(path)
-        x = img_to_array(img)
-        if USE_VGG:
-            X_dn.append(x.copy())
-            X_vg.append(x.copy())
-        else:
-            X_dn.append(x)
-    # DenseNet
-    X_dn = np.array(X_dn)
-    X_dn = densenet_pre(X_dn)
-    f_dn = densenet.predict(X_dn, batch_size=BATCH_SIZE, verbose=0)
-    # VGG
-    if USE_VGG:
-        X_vg = np.array(X_vg)
-        X_vg = vgg_pre(X_vg)
-        f_vg = vgg.predict(X_vg, batch_size=BATCH_SIZE, verbose=0)
-        feats = np.concatenate([f_dn, f_vg], axis=1)
-    else:
-        feats = f_dn
-    return feats
+# --------------------------
+# Feature extraction
+# --------------------------
+def extract_features(paths):
+    imgs = []
 
-# ------------- Feature extraction train/test -------------
-if os.path.exists(FEATURES_PKL):
-    print("Loading saved features:", FEATURES_PKL)
-    df = pd.read_pickle(FEATURES_PKL)
-    X_train = np.vstack(df[df['set']=='train']['features'].values)
-    y_train = df[df['set']=='train']['label'].values
-    X_test = np.vstack(df[df['set']=='test']['features'].values)
-    y_test = df[df['set']=='test']['label'].values
-else:
-    categories = sorted([d for d in os.listdir(TRAIN_DIR) if os.path.isdir(os.path.join(TRAIN_DIR,d))])
-    train_rows, test_rows = [], []
+    for p in paths:
+        img = load_image(p)
+        img = img_to_array(img)
+        imgs.append(img)
 
-    # -------- TRAIN FEATURES --------
-    for cls in categories:
-        cls_folder = os.path.join(TRAIN_DIR, cls)
-        imgs = [os.path.join(cls_folder, f) for f in os.listdir(cls_folder) if f.lower().endswith(('.jpg','.png'))]
-        print(f"Processing TRAIN class {cls} -> {len(imgs)} images")
-        feats = extract_features_batch(imgs)
-        for f, img_path in zip(feats, imgs):
-            train_rows.append({'features': f, 'label': cls, 'set': 'train'})
+    imgs = np.array(imgs)
 
-    # -------- TEST FEATURES --------
-    for cls in categories:
-        cls_folder = os.path.join(TEST_DIR, cls)
-        imgs = [os.path.join(cls_folder, f) for f in os.listdir(cls_folder) if f.lower().endswith(('.jpg','.png'))]
-        print(f"Processing TEST class {cls} -> {len(imgs)} images")
-        feats = extract_features_batch(imgs)
-        for f, img_path in zip(feats, imgs):
-            test_rows.append({'features': f, 'label': cls, 'set': 'test'})
+    # DenseNet features
+    dn_in = dn_pre(imgs.copy())
+    f_dn = dn_model.predict(dn_in, batch_size=BATCH_SIZE, verbose=0)
 
-    # DataFrame oluştur
-    df_train = pd.DataFrame(train_rows)
-    df_test = pd.DataFrame(test_rows)
-    df = pd.concat([df_train, df_test], ignore_index=True)
-    df.to_pickle(FEATURES_PKL)
+    # VGG19 features
+    vg_in = vgg_pre(imgs.copy())
+    f_vg = vgg_model.predict(vg_in, batch_size=BATCH_SIZE, verbose=0)
 
-    X_train = np.vstack(df[df['set']=='train']['features'].values)
-    y_train = df[df['set']=='train']['label'].values
-    X_test = np.vstack(df[df['set']=='test']['features'].values)
-    y_test = df[df['set']=='test']['label'].values
-    print("Saved features to", FEATURES_PKL)
+    # Concatenate
+    features = np.concatenate([f_dn, f_vg], axis=1)
+    return features
 
-# ------------- Encode labels -------------
+# --------------------------
+# Dataset sınıf isimlerini oku
+# --------------------------
+classes = sorted(os.listdir(DATASET_DIR))
+
+all_features = []
+all_labels = []
+
+print("\n=== FEATURE EXTRACTION BASLADI ===\n")
+
+for cls in classes:
+    cls_folder = os.path.join(DATASET_DIR, cls)
+    img_paths = [
+        os.path.join(cls_folder, f)
+        for f in os.listdir(cls_folder)
+        if f.lower().endswith(".jpg")
+    ]
+
+    print(f"Processing class {cls} -> {len(img_paths)} images")
+
+    feats = extract_features(img_paths)
+
+    all_features.append(feats)
+    all_labels += [cls] * len(feats)
+
+# Hepsini birleştir
+X = np.vstack(all_features)
+y = np.array(all_labels)
+
+print("\nFeature shape (Dense+VGG):", X.shape)
+
+# --------------------------
+# LABEL ENCODING
+# --------------------------
 le = LabelEncoder()
-y_train_enc = le.fit_transform(y_train)
-y_test_enc = le.transform(y_test)
-print("Classes:", le.classes_)
+y_enc = le.fit_transform(y)
 
-# ------------- Scale -------------
+# --------------------------
+# SCALING
+# --------------------------
 scaler = StandardScaler()
-X_train_s = scaler.fit_transform(X_train)
-X_test_s = scaler.transform(X_test)
+X_scaled = scaler.fit_transform(X)
 
-# ------------- RandomForest ---------
-rf = RandomForestClassifier(n_estimators=200, random_state=SEED, n_jobs=-1)
-rf.fit(X_train_s, y_train_enc)
+# --------------------------
+# PCA
+# --------------------------
+pca = PCA(n_components=PCA_COMPONENTS, random_state=SEED)
+X_pca = pca.fit_transform(X_scaled)
 
-# ------------- Evaluate ---------
-y_pred = rf.predict(X_test_s)
-print("\nClassification report (hold-out):\n", classification_report(y_test_enc, y_pred, target_names=le.classes_))
-print("\nConfusion matrix:\n", confusion_matrix(y_test_enc, y_pred))
+print("PCA output shape:", X_pca.shape)
 
-# 10-fold CV
-X_all = np.vstack([X_train, X_test])
-y_all = np.concatenate([y_train_enc, y_test_enc])
-skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=SEED)
-scores = cross_val_score(rf, scaler.transform(X_all), y_all, cv=skf, scoring='accuracy', n_jobs=-1)
-print("10-fold CV accuracies:", np.round(scores,4))
-print("Mean CV acc: {:.4f} ± {:.4f}".format(scores.mean(), scores.std()))
+# --------------------------
+# TRAIN/TEST SPLIT (80/20)
+# --------------------------
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(
+    X_pca, y_enc, test_size=0.2, shuffle=True, stratify=y_enc, random_state=SEED
+)
 
+# --------------------------
+# RANDOM FOREST
+# --------------------------
+rf = RandomForestClassifier(n_estimators=N_TREES, random_state=SEED, n_jobs=-1)
+rf.fit(X_train, y_train)
+
+# --------------------------
+# TEST EVALUATION
+# --------------------------
+y_pred = rf.predict(X_test)
+
+print("\n=== CLASSIFICATION REPORT ===\n")
+print(classification_report(y_test, y_pred, target_names=le.classes_))
+
+print("\n=== CONFUSION MATRIX ===\n")
+print(confusion_matrix(y_test, y_pred))
+
+# --------------------------
 # Save model
-joblib.dump({'rf': rf, 'scaler': scaler, 'le': le}, "rf_dense_vgg_model_gpu_fixed.joblib")
-print("Saved RF model -> rf_dense_vgg_model_gpu_fixed.joblib")
+# --------------------------
+joblib.dump({
+    "rf": rf,
+    "scaler": scaler,
+    "pca": pca,
+    "le": le
+}, "mango_pca_rf_model.joblib")
+
+print("\nModel saved -> mango_pca_rf_model.joblib\n")
