@@ -1,0 +1,2 @@
+Validation accuracy WITH outliers: 0.9722
+Validation accuracy WITHOUT outliers: 1.0000

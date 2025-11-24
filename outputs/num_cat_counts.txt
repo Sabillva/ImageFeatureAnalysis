@@ -1,0 +1,2 @@
+Numeric columns: 13
+Categorical columns: 0

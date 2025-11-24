@@ -1,0 +1,14 @@
+,0
+alcohol,float64
+malic_acid,float64
+ash,float64
+alcalinity_of_ash,float64
+magnesium,float64
+total_phenols,float64
+flavanoids,float64
+nonflavanoid_phenols,float64
+proanthocyanins,float64
+color_intensity,float64
+hue,float64
+od280/od315_of_diluted_wines,float64
+proline,float64
